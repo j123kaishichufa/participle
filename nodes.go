@@ -103,39 +103,46 @@ func (s *strct) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.Valu
 
 // <expr> {"|" <expr>}
 type disjunction struct {
-	nodes []node
+	nodes     []node
+	lookahead []lookahead
 }
 
-func (e disjunction) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.Value) {
-	for _, a := range e.nodes {
-		if value := a.Parse(lex, parent); value != nil {
-			return value
+func (e *disjunction) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.Value) {
+	for _, look := range e.lookahead {
+		lt := look.token
+		t := lex.Peek(look.depth)
+		if (lt.Value == "" || lt.Value == t.Value) && (lt.Type == lexer.EOF || lt.Type == t.Type) {
+			// repr.Println(lt, t)
+			// fmt.Println(stringer(e.nodes[look.root], 16))
+			return e.nodes[look.root].Parse(lex, parent)
 		}
 	}
+	// for _, a := range e.nodes {
+	// 	if value := a.Parse(lex, parent); value != nil {
+	// 		return value
+	// 	}
+	// }
 	return nil
 }
 
 // <node> ...
 type sequence struct {
+	head bool
 	node node
 	next *sequence
 }
 
 func (a *sequence) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.Value) {
 	for n := a; n != nil; n = n.next {
-		// If first value doesn't match, we early exit, otherwise all values must match.
 		child := n.node.Parse(lex, parent)
 		if child == nil {
+			// If first value doesn't match, we early exit, otherwise all values must match.
 			if n == a {
 				return nil
 			}
-			lexer.Panicf(lex.Peek(0).Pos, "expected ( %s ) not %q", stringer(n, 16), lex.Peek(0))
+			lexer.Panicf(lex.Peek(0).Pos, "expected %s not %q", stringer(n, 32), lex.Peek(0))
 		}
-		if len(child) == 0 && out == nil {
-			out = []reflect.Value{}
-		} else {
-			out = append(out, child...)
-		}
+		out = append(out, child...)
 	}
 	return out
 }
@@ -156,6 +163,7 @@ func (r *capture) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.Va
 	return []reflect.Value{parent}
 }
 
+// <identifier> - named lexer token reference
 type reference struct {
 	typ        rune
 	identifier string // Used for informational purposes.
@@ -166,7 +174,7 @@ func (t *reference) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.
 	if token.Type != t.typ {
 		return nil
 	}
-	lex.Next()
+	token = lex.Transform(lex.Next())
 	return []reflect.Value{reflect.ValueOf(token.Value)}
 }
 
@@ -212,7 +220,8 @@ type literal struct {
 func (s *literal) Parse(lex lexer.Lexer, parent reflect.Value) (out []reflect.Value) {
 	token := lex.Peek(0)
 	if token.Value == s.s && (s.t == -1 || s.t == token.Type) {
-		return []reflect.Value{reflect.ValueOf(lex.Next().Value)}
+		token = lex.Transform(lex.Next())
+		return []reflect.Value{reflect.ValueOf(token.Value)}
 	}
 	return nil
 }

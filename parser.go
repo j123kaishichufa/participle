@@ -3,6 +3,7 @@ package participle
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -14,6 +15,7 @@ import (
 type Parser struct {
 	root node
 	lex  lexer.Definition
+	typ  reflect.Type
 }
 
 // MustBuild calls Build(grammar, lex) and panics if an error occurs.
@@ -37,26 +39,23 @@ func Build(grammar interface{}, lex lexer.Definition) (parser *Parser, err error
 		lex = lexer.TextScannerLexer
 	}
 	context := newGeneratorContext(lex)
-	root := context.parseType(reflect.TypeOf(grammar))
-	return &Parser{root: root, lex: lex}, nil
+	typ := reflect.TypeOf(grammar)
+	root := context.parseType(typ)
+	applyLookahead(root, map[node]bool{})
+	return &Parser{root: root, lex: lex, typ: typ}, nil
 }
 
 // Parse from r into grammar v which must be of the same type as the grammar passed to
 // participle.Build().
 func (p *Parser) Parse(r io.Reader, v interface{}) (err error) {
+	if reflect.TypeOf(v) != p.typ {
+		return fmt.Errorf("must parse into value of type %s not %T", p.typ, v)
+	}
 	defer recoverToError(&err)
 	lex := p.lex.Lex(r)
 	// If the grammar implements Parseable, use it.
 	if parseable, ok := v.(Parseable); ok {
-		err = parseable.Parse(lex)
-		peek := lex.Peek(0)
-		if err == NextMatch {
-			return lexer.Errorf(peek.Pos, "invalid syntax")
-		}
-		if err == nil && !peek.EOF() {
-			return lexer.Errorf(peek.Pos, "unexpected token %q", peek)
-		}
-		return err
+		return p.rootParseable(lex, parseable)
 	}
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Struct {
@@ -71,6 +70,18 @@ func (p *Parser) Parse(r io.Reader, v interface{}) (err error) {
 	}
 	rv.Elem().Set(reflect.Indirect(pv[0]))
 	return
+}
+
+func (p *Parser) rootParseable(lex lexer.Lexer, parseable Parseable) error {
+	err := parseable.Parse(lex)
+	peek := lex.Peek(0)
+	if err == NextMatch {
+		return lexer.Errorf(peek.Pos, "invalid syntax")
+	}
+	if err == nil && !peek.EOF() {
+		return lexer.Errorf(peek.Pos, "unexpected token %q", peek)
+	}
+	return err
 }
 
 // ParseString is a convenience around Parse().

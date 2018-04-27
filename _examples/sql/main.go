@@ -1,10 +1,11 @@
 package main
 
 import (
+	"gopkg.in/alecthomas/kingpin.v2"
+
 	"github.com/alecthomas/participle"
 	"github.com/alecthomas/participle/lexer"
 	"github.com/alecthomas/repr"
-	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (
@@ -17,7 +18,7 @@ var (
 		`|(?P<String>'[^']*'|"[^"]*")`+
 		`|(?P<Operators><>|!=|<=|>=|[-+*/%,.()=<>])`,
 	)), "Keyword"), "String")
-	sqlParser = participle.MustBuild(&Select{}, sqlLexer)
+	sqlParser = participle.MustBuild(&Expression{}, sqlLexer)
 )
 
 type Boolean bool
@@ -167,7 +168,7 @@ type Array struct {
 
 func main() {
 	kingpin.Parse()
-	sql := &Select{}
+	sql := &Expression{}
 	err := sqlParser.ParseString(*sqlArg, sql)
 	kingpin.FatalIfError(err, "")
 	repr.Println(sql, repr.Indent("  "), repr.OmitEmpty(true))

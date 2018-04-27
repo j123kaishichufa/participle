@@ -38,10 +38,11 @@ func (s *stringerVisitor) visit(n node, depth int) {
 		s.visit(n.expr, depth-1)
 
 	case *sequence:
-		s.visit(n.node, depth-1)
-		if n.next != nil {
-			fmt.Fprint(s, " ")
-			s.visit(n.next, depth-1)
+		for c := n; c != nil; c = c.next {
+			if c != n {
+				fmt.Fprint(s, " ")
+			}
+			s.visit(c.node, depth-1)
 		}
 
 	case *capture:
